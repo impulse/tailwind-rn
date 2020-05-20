@@ -1,21 +1,14 @@
 'use strict';
-const path = require('path');
-const fs = require('fs');
 const css = require('css');
 const cssToReactNative = require('css-to-react-native').default;
-const pkgJson = require('tailwindcss/package.json');
 
-const pkgPath = require.resolve('tailwindcss').replace(pkgJson.main, '');
-const source = fs.readFileSync(path.join(pkgPath, pkgJson.style), 'utf8');
-const {stylesheet} = css.parse(source);
-
-const remToPx = value => `${parseFloat(value) * 16}px`;
+const remToPx = value => `${Number.parseFloat(value) * 16}px`;
 
 const getStyles = rule => {
 	const styles = rule.declarations
-		.filter(({property}) => {
+		.filter(({property, value}) => {
 			// Skip line-height utilities without units
-			if (property === 'line-height') {
+			if (property === 'line-height' && !value.endsWith('rem')) {
 				return false;
 			}
 
@@ -71,8 +64,8 @@ const supportedUtilities = [
 	// Letter spacing
 	/^tracking-/,
 	// Line height
-	/^leading-/,
-	// Text align, color
+	/^leading-\d+/,
+	// Text align, color, opacity
 	/^text-/,
 	// Text transform
 	'uppercase',
@@ -81,7 +74,9 @@ const supportedUtilities = [
 	'normal-case',
 	// Background color
 	/^bg-(transparent|black|white|gray|red|orange|yellow|green|teal|blue|indigo|purple|pink)/,
-	// Border color, style, width, radius
+	// Background opacity
+	/^bg-opacity-/,
+	// Border color, style, width, radius, opacity
 	/^(border|rounded)/,
 	// Opacity
 	/^opacity-/,
@@ -90,6 +85,11 @@ const supportedUtilities = [
 ];
 
 const isUtilitySupported = utility => {
+	// Skip utilities with `currentColor` values
+	if (['border-current', 'text-current'].includes(utility)) {
+		return false;
+	}
+
 	for (const supportedUtility of supportedUtilities) {
 		if (typeof supportedUtility === 'string' && supportedUtility === utility) {
 			return true;
@@ -103,27 +103,28 @@ const isUtilitySupported = utility => {
 	return false;
 };
 
-// Mapping of Tailwind class names to React Native styles
-const styles = {};
+module.exports = source => {
+	const {stylesheet} = css.parse(source);
 
-for (const rule of stylesheet.rules) {
-	if (rule.type === 'rule') {
-		for (const selector of rule.selectors) {
-			const utility = selector.replace(/^\./, '').replace('\\/', '/');
+	// Mapping of Tailwind class names to React Native styles
+	const styles = {};
 
-			if (isUtilitySupported(utility)) {
-				styles[utility] = getStyles(rule);
+	for (const rule of stylesheet.rules) {
+		if (rule.type === 'rule') {
+			for (const selector of rule.selectors) {
+				const utility = selector.replace(/^\./, '').replace('\\/', '/');
+
+				if (isUtilitySupported(utility)) {
+					styles[utility] = getStyles(rule);
+				}
 			}
 		}
 	}
-}
 
-// Additional styles that we're not able to parse correctly automatically
-styles.underline = {textDecorationLine: 'underline'};
-styles['line-through'] = {textDecorationLine: 'line-through'};
-styles['no-underline'] = {textDecorationLine: 'none'};
+	// Additional styles that we're not able to parse correctly automatically
+	styles.underline = {textDecorationLine: 'underline'};
+	styles['line-through'] = {textDecorationLine: 'line-through'};
+	styles['no-underline'] = {textDecorationLine: 'none'};
 
-fs.writeFileSync(
-	path.join(__dirname, 'styles.json'),
-	JSON.stringify(styles, null, '\t')
-);
+	return styles;
+};
